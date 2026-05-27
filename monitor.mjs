@@ -73,7 +73,7 @@ export default async () => {
     }
   }
 
-  const allKeys = [...new Set([...knownKeys, ...allProducts.map(p => `${p.site}:${p.title}`)])];
+  await sendWhatsApp(WA_PHONE, WA_APIKEY, `Debug: trovati ${allProducts.length} prodotti, nuovi: ${newProducts.length}`);
   await store.set('known-keys', JSON.stringify(allKeys));
 };
 
