@@ -64,7 +64,8 @@ export default async () => {
     try {
       const products = await searchSite(site.name, site.url);
       allProducts = [...allProducts, ...products];
-      const newOnes = products.filter(p => !knownKeys.has(`${site.name}:${p.title}`));
+      const isFirstRun = knownKeys.size === 0;
+const newOnes = isFirstRun ? products : products.filter(p => !knownKeys.has(`${site.name}:${p.title}`));
       newProducts = [...newProducts, ...newOnes];
     } catch(err) { console.error(`Error ${site.name}:`, err.message); }
   }
