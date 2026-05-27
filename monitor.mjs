@@ -31,20 +31,20 @@ async function scrapeManaTrust() {
 
 async function scrapeManaShop() {
   const products = [];
-  const pages = ['https://themanashop.ch/en/31-booster-packs', 'https://themanashop.ch/en/31-booster-packs?page=2'];
-  for (const pageUrl of pages) {
-    const r = await fetch(pageUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    const html = await r.text();
-    const regex = /<a[^>]*href="(https:\/\/themanashop\.ch\/en\/[^"]+)"[^>]*>\s*<img[^>]*>\s*([\s\S]*?)<\/a>/gi;
-    let match;
-    while ((match = regex.exec(html)) !== null) {
-      const title = match[2].replace(/<[^>]+>/g, '').trim();
-      if (title && title.length > 5 && title.length < 120) {
-        products.push({ title, url: match[1], site: 'The Mana Shop', price: '' });
-      }
+  const r = await fetch('https://themanashop.ch/en/31-booster-packs?id_category=31&n=50&controller=category', {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+  });
+  const html = await r.text();
+  const regex = /href="(https:\/\/themanashop\.ch\/en\/[^"]*\d+-[^"]+\.html)"[^>]*title="([^"]+)"/gi;
+  let match;
+  while ((match = regex.exec(html)) !== null) {
+    const title = match[2].trim();
+    const lower = title.toLowerCase();
+    if (title.length > 5 && !lower.includes('yu-gi-oh') && !lower.includes('digimon') && !lower.includes('one piece') && !lower.includes('lorcana') && !lower.includes('pokemon')) {
+      products.push({ title, url: match[1], site: 'The Mana Shop', price: '' });
     }
   }
-  return [...new Map(products.map(p => [p.title, p])).values()].slice(0, 15);
+  return [...new Map(products.map(p => [p.title, p])).values()].slice(0, 20);
 }
 
 async function scrapeTwoMoons() {
@@ -56,7 +56,7 @@ async function scrapeTwoMoons() {
   while ((match = regex.exec(html)) !== null) {
     const title = match[2].trim();
     const url = match[1];
-    if (title.length > 5 && !url.includes('account') && !url.includes('cart') && !url.includes('login')) {
+    if (title.length > 5 && !url.includes('account') && !url.includes('cart') && !url.includes('login') && !url.includes('checkout')) {
       products.push({ title, url, site: 'TwoMoons', price: '' });
     }
   }
@@ -110,4 +110,3 @@ export default async () => {
 };
 
 export const config = { schedule: "*/30 * * * *" };
-
