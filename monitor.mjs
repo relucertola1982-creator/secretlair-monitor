@@ -1,9 +1,17 @@
 import { getStore } from "@netlify/blobs";
-import { sendWhatsApp } from "./utils.mjs";
 
 const CLAUDE_KEY = process.env.CLAUDE_KEY;
-const WA_PHONE = process.env.WA_PHONE;
-const WA_APIKEY = process.env.WA_APIKEY;
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+
+async function sendTelegram(msg) {
+  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+  await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: msg })
+  });
+}
 
 async function searchSite(siteName, siteUrl) {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -17,7 +25,7 @@ async function searchSite(siteName, siteUrl) {
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 1000,
       tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-      system: `Trova prodotti Magic: The Gathering IN STOCK su ${siteUrl}. Rispondi SOLO:\n## [Nome]\n- Status: Available\n- Price: [prezzo]\n- URL: [link]\nSolo prodotti acquistabili ora.`,
+      system: `Trova prodotti Magic: The Gathering IN STOCK su ${siteUrl}. Rispondi SOLO:\n## [Nome]\n- Price: [prezzo]\n- URL: [link]\nSolo prodotti acquistabili ora.`,
       messages: [{ role: 'user', content: `Prodotti MTG disponibili su ${siteUrl} oggi: Collector Booster, Set Booster, Bundle, Commander, Secret Lair. Solo IN STOCK. ${new Date().toLocaleDateString('it-IT')}` }]
     })
   });
@@ -42,7 +50,7 @@ async function searchSite(siteName, siteUrl) {
 }
 
 export default async () => {
-  if (!CLAUDE_KEY || !WA_PHONE || !WA_APIKEY) return;
+  if (!CLAUDE_KEY || !TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) return;
   const store = getStore('sl-monitor');
 
   let knownKeys = [];
@@ -67,13 +75,13 @@ export default async () => {
 
   if (newProducts.length > 0) {
     for (const p of newProducts) {
-      const msg = `🃏 MTG DISPONIBILE su ${p.site}!\n\n✦ ${p.title}\n💰 ${p.price || 'N/D'}\n🛒 ${p.url || 'https://' + (p.site === 'Secret Lair' ? 'secretlair.wizards.com' : p.site === 'Game Island' ? 'gameisland.eu' : 'manatrust.com')}`;
-      await sendWhatsApp(WA_PHONE, WA_APIKEY, msg);
-      await new Promise(r => setTimeout(r, 3000));
+      const msg = `🃏 MTG DISPONIBILE su ${p.site}!\n\n✦ ${p.title}\n💰 ${p.price || 'N/D'}\n🛒 ${p.url || ''}`;
+      await sendTelegram(msg);
+      await new Promise(r => setTimeout(r, 2000));
     }
   }
 
-  await sendWhatsApp(WA_PHONE, WA_APIKEY, `Debug: trovati ${allProducts.length} prodotti, nuovi: ${newProducts.length}`);
+  const allKeys = [...new Set([...knownKeys, ...allProducts.map(p => `${p.site}:${p.title}`)])];
   await store.set('known-keys', JSON.stringify(allKeys));
 };
 
