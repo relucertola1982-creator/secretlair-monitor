@@ -1,5 +1,5 @@
 import { getStore } from "@netlify/blobs";
-import { checkDropsWithClaude, sendWhatsApp } from "../../lib/utils.mjs";
+import { checkDropsWithClaude, sendWhatsApp } from "./utils.mjs";
 
 const CLAUDE_KEY = process.env.CLAUDE_KEY;
 const WA_PHONE = process.env.WA_PHONE;
