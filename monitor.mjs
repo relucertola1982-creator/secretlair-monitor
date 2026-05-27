@@ -1,89 +1,85 @@
 import { getStore } from "@netlify/blobs";
 
-const CLAUDE_KEY = process.env.CLAUDE_KEY;
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
 async function sendTelegram(msg) {
-  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
-  await fetch(url, {
+  await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: msg })
   });
 }
 
-async function searchSite(siteName, siteUrl) {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': CLAUDE_KEY,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1000,
-      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-      system: `Trova prodotti Magic: The Gathering IN STOCK su ${siteUrl}. Rispondi SOLO:\n## [Nome]\n- Price: [prezzo]\n- URL: [link]\nSolo prodotti acquistabili ora.`,
-      messages: [{ role: 'user', content: `Prodotti MTG disponibili su ${siteUrl} oggi: Collector Booster, Set Booster, Bundle, Commander, Secret Lair. Solo IN STOCK. ${new Date().toLocaleDateString('it-IT')}` }]
-    })
-  });
-  const data = await response.json();
-  if (data.error) throw new Error(data.error.message);
-  const text = (data.content || []).map(b => b.type === 'text' ? b.text : '').filter(Boolean).join('\n');
+async function scrapeSecretLair() {
+  const r = await fetch('https://secretlair.wizards.com', { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  const html = await r.text();
   const products = [];
-  let cur = null;
-  for (const line of text.split('\n')) {
-    const t = line.trim(); if (!t) continue;
-    if (t.startsWith('##')) {
-      if (cur) products.push(cur);
-      cur = { title: t.replace(/^#+\s*/, '').trim(), price: '', url: '', site: siteName };
-    } else if (cur) {
-      const low = t.toLowerCase();
-      if (low.match(/^-\s*(url|link):/)) { const u = t.split(':').slice(1).join(':').trim(); if (u.startsWith('http')) cur.url = u; }
-      else if (low.match(/^-\s*price:/)) { cur.price = t.split(':').slice(1).join(':').trim(); }
+  const regex = /href="(\/products\/[^"]+)"[^>]*>[\s\S]*?<[^>]*class="[^"]*title[^"]*"[^>]*>([\s\S]*?)<\/[^>]+>/gi;
+  let match;
+  while ((match = regex.exec(html)) !== null) {
+    const url = 'https://secretlair.wizards.com' + match[1];
+    const title = match[2].replace(/<[^>]+>/g, '').trim();
+    if (title && title.length > 3) products.push({ title, url, site: 'Secret Lair', price: '' });
+  }
+  return products;
+}
+
+async function scrapeGeneric(siteUrl, siteName) {
+  const r = await fetch(`https://${siteUrl}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  const html = await r.text();
+  const products = [];
+  const keywords = ['collector booster', 'set booster', 'bundle', 'commander', 'draft booster', 'magic'];
+  const regex = /<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+  while ((match = regex.exec(html)) !== null) {
+    const text = match[2].replace(/<[^>]+>/g, '').trim().toLowerCase();
+    if (keywords.some(k => text.includes(k)) && text.length > 5 && text.length < 100) {
+      let url = match[1];
+      if (!url.startsWith('http')) url = `https://${siteUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+      products.push({ title: match[2].replace(/<[^>]+>/g, '').trim(), url, site: siteName, price: '' });
     }
   }
-  if (cur) products.push(cur);
-  return products.filter(p => p.title);
+  return [...new Map(products.map(p => [p.title, p])).values()].slice(0, 10);
 }
 
 export default async () => {
-  if (!CLAUDE_KEY || !TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) return;
-
-  await sendTelegram(`🔍 Monitor avviato - cerco prodotti...`);
+  if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) return;
+  await sendTelegram('🔍 Monitor avviato - cerco prodotti MTG...');
 
   const store = getStore('sl-monitor');
   let knownKeys = [];
   try { const s = await store.get('known-keys'); if (s) knownKeys = JSON.parse(s); } catch(e) {}
 
-  const sites = [
-    { name: 'Secret Lair', url: 'secretlair.wizards.com' },
-    { name: 'Game Island', url: 'gameisland.eu' },
-    { name: 'Mana Trust', url: 'manatrust.com' }
-  ];
-
   let allProducts = [];
-  for (const site of sites) {
-    await new Promise(r => setTimeout(r, 5000));
-    try {
-      const products = await searchSite(site.name, site.url);
-      allProducts = [...allProducts, ...products];
-    } catch(err) {
-      await sendTelegram(`❌ Errore ${site.name}: ${err.message}`);
-    }
+
+  try {
+    const sl = await scrapeSecretLair();
+    allProducts = [...allProducts, ...sl];
+  } catch(err) {
+    await sendTelegram(`❌ Errore Secret Lair: ${err.message}`);
+  }
+
+  try {
+    const gi = await scrapeGeneric('gameisland.eu', 'Game Island');
+    allProducts = [...allProducts, ...gi];
+  } catch(err) {
+    await sendTelegram(`❌ Errore Game Island: ${err.message}`);
+  }
+
+  try {
+    const mt = await scrapeGeneric('manatrust.com', 'Mana Trust');
+    allProducts = [...allProducts, ...mt];
+  } catch(err) {
+    await sendTelegram(`❌ Errore Mana Trust: ${err.message}`);
   }
 
   const newProducts = allProducts.filter(p => !knownKeys.includes(`${p.site}:${p.title}`));
-  await sendTelegram(`✅ Trovati ${allProducts.length} prodotti totali, ${newProducts.length} nuovi`);
+  await sendTelegram(`✅ Trovati ${allProducts.length} prodotti, ${newProducts.length} nuovi`);
 
-  if (newProducts.length > 0) {
-    for (const p of newProducts) {
-      const msg = `🃏 MTG DISPONIBILE su ${p.site}!\n\n✦ ${p.title}\n💰 ${p.price || 'N/D'}\n🛒 ${p.url || ''}`;
-      await sendTelegram(msg);
-      await new Promise(r => setTimeout(r, 2000));
-    }
+  for (const p of newProducts) {
+    await sendTelegram(`🃏 NUOVO su ${p.site}!\n\n✦ ${p.title}\n🛒 ${p.url}`);
+    await new Promise(r => setTimeout(r, 1000));
   }
 
   const allKeys = [...new Set([...knownKeys, ...allProducts.map(p => `${p.site}:${p.title}`)])];
