@@ -1,5 +1,5 @@
 import { getStore } from "@netlify/blobs";
-import { checkDropsWithClaude } from "../../lib/utils.mjs";
+import { checkDropsWithClaude } from "./utils.mjs";
 
 const CLAUDE_KEY = process.env.CLAUDE_KEY;
 
