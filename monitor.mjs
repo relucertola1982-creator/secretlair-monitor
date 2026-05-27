@@ -51,8 +51,10 @@ async function searchSite(siteName, siteUrl) {
 
 export default async () => {
   if (!CLAUDE_KEY || !TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) return;
-  const store = getStore('sl-monitor');
 
+  await sendTelegram(`🔍 Monitor avviato - cerco prodotti...`);
+
+  const store = getStore('sl-monitor');
   let knownKeys = [];
   try { const s = await store.get('known-keys'); if (s) knownKeys = JSON.parse(s); } catch(e) {}
 
@@ -68,10 +70,13 @@ export default async () => {
     try {
       const products = await searchSite(site.name, site.url);
       allProducts = [...allProducts, ...products];
-    } catch(err) {}
+    } catch(err) {
+      await sendTelegram(`❌ Errore ${site.name}: ${err.message}`);
+    }
   }
 
   const newProducts = allProducts.filter(p => !knownKeys.includes(`${p.site}:${p.title}`));
+  await sendTelegram(`✅ Trovati ${allProducts.length} prodotti totali, ${newProducts.length} nuovi`);
 
   if (newProducts.length > 0) {
     for (const p of newProducts) {
