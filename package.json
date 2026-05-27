@@ -1,7 +1,6 @@
 {
   "name": "secret-lair-monitor",
   "version": "1.0.0",
-  "type": "module",
   "dependencies": {
     "@netlify/blobs": "^8.1.1"
   }
