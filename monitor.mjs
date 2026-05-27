@@ -11,42 +11,35 @@ async function sendTelegram(msg) {
   });
 }
 
-async function scrapeSecretLair() {
-  const r = await fetch('https://secretlair.wizards.com', { headers: { 'User-Agent': 'SecretLairMonitor/1.0' } });
+async function scrapeAmazon(domain, keyword) {
+  const url = `https://www.amazon.${domain}/s?k=${encodeURIComponent(keyword)}&i=toys`;
+  const r = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'Accept-Language': 'it-IT,it;q=0.9',
+      'Accept': 'text/html'
+    }
+  });
   const html = await r.text();
   const products = [];
-  const regex = /href="(\/products\/[^"]+)"[^>]*>[\s\S]*?<[^>]*class="[^"]*title[^"]*"[^>]*>([\s\S]*?)<\/[^>]+>/gi;
+  const regex = /data-asin="([A-Z0-9]{10})"[\s\S]*?<span class="a-text-normal">([\s\S]*?)<\/span>/g;
   let match;
   while ((match = regex.exec(html)) !== null) {
-    const url = 'https://secretlair.wizards.com' + match[1];
+    const asin = match[1];
     const title = match[2].replace(/<[^>]+>/g, '').trim();
-    if (title && title.length > 3) products.push({ title, url, site: 'Secret Lair' });
-  }
-  return products;
-}
-
-async function scrapeGamesIsland() {
-  const r = await fetch('https://crawlme.games-island.eu/c/Magic-The-Gathering', {
-    headers: { 'User-Agent': 'SecretLairMonitor/1.0 (contact: user@email.com)' }
-  });
-  const data = await r.json();
-  const products = [];
-  if (data && Array.isArray(data.products)) {
-    for (const p of data.products) {
-      if (p.available && p.name) {
-        products.push({
-          title: p.name,
-          url: `https://games-island.eu${p.url || '/c/Magic-The-Gathering'}`,
-          site: 'Games Island'
-        });
-      }
+    if (title && title.length > 10 && asin) {
+      products.push({
+        title: title.substring(0, 80),
+        url: `https://www.amazon.${domain}/dp/${asin}`,
+        site: `Amazon.${domain}`
+      });
     }
   }
-  return products.slice(0, 15);
+  return [...new Map(products.map(p => [p.title, p])).values()].slice(0, 8);
 }
 
 async function scrapeManaTrust() {
-  const r = await fetch('https://manatrust.com', { headers: { 'User-Agent': 'SecretLairMonitor/1.0' } });
+  const r = await fetch('https://manatrust.com', { headers: { 'User-Agent': 'Mozilla/5.0' } });
   const html = await r.text();
   const products = [];
   const keywords = ['collector booster', 'set booster', 'bundle', 'commander', 'draft booster', 'magic', 'secret lair'];
@@ -71,13 +64,23 @@ export default async () => {
   try { const s = await store.get('known-keys'); if (s) knownKeys = JSON.parse(s); } catch(e) {}
 
   const now = new Date();
-  const isRiepilogo = now.getUTCHours() === 7; // 7 UTC = 9 ora italiana
+  const isRiepilogo = now.getUTCHours() === 7;
 
   let allProducts = [];
 
-  try { allProducts = [...allProducts, ...await scrapeSecretLair()]; } catch(err) {}
-  try { allProducts = [...allProducts, ...await scrapeGamesIsland()]; } catch(err) {}
+  // Mana Trust
   try { allProducts = [...allProducts, ...await scrapeManaTrust()]; } catch(err) {}
+
+  // Amazon .it
+  try { allProducts = [...allProducts, ...await scrapeAmazon('it', 'Magic The Gathering Collector Booster')]; } catch(err) {}
+  await new Promise(r => setTimeout(r, 3000));
+
+  // Amazon .fr
+  try { allProducts = [...allProducts, ...await scrapeAmazon('fr', 'Magic The Gathering Collector Booster')]; } catch(err) {}
+  await new Promise(r => setTimeout(r, 3000));
+
+  // Amazon .de
+  try { allProducts = [...allProducts, ...await scrapeAmazon('de', 'Magic The Gathering Collector Booster')]; } catch(err) {}
 
   // Nuovi prodotti → notifica immediata
   const newProducts = allProducts.filter(p => !knownKeys.includes(`${p.site}:${p.title}`));
