@@ -22,7 +22,7 @@ async function scrapeManaTrust() {
     const text = match[2].replace(/<[^>]+>/g, '').trim().toLowerCase();
     if (keywords.some(k => text.includes(k)) && text.length > 5 && text.length < 100) {
       let url = match[1];
-      if (!url.startsWith('http')) url = `https://manatrust.com${url.startsWith('/') ? '' : '/'}${url}`;
+      if (!url.startsWith('http')) url = 'https://manatrust.com' + (url.startsWith('/') ? '' : '/') + url;
       products.push({ title: match[2].replace(/<[^>]+>/g, '').trim(), url, site: 'Mana Trust', price: '' });
     }
   }
@@ -30,23 +30,34 @@ async function scrapeManaTrust() {
 }
 
 async function scrapeManaShop() {
-  const pages = [
-    'https://themanashop.ch/en/31-booster-packs',
-    'https://themanashop.ch/en/31-booster-packs#/page-2'
-  ];
   const products = [];
+  const pages = ['https://themanashop.ch/en/31-booster-packs', 'https://themanashop.ch/en/31-booster-packs?page=2'];
   for (const pageUrl of pages) {
     const r = await fetch(pageUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
     const html = await r.text();
-    const regex = /<article[^>]*>[\s\S]*?<a[^>]*href="(https:\/\/themanashop\.ch\/en\/[^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<span[^>]*class="[^"]*price[^"]*"[^>]*>([\s\S]*?)<\/span>/gi;
+    const regex = /<a[^>]*href="(https:\/\/themanashop\.ch\/en\/[^"]+)"[^>]*>\s*<img[^>]*>\s*([\s\S]*?)<\/a>/gi;
     let match;
     while ((match = regex.exec(html)) !== null) {
-      const url = match[1];
       const title = match[2].replace(/<[^>]+>/g, '').trim();
-      const price = match[3].replace(/<[^>]+>/g, '').trim();
-      if (title && title.length > 5) {
-        products.push({ title, url, site: 'The Mana Shop', price });
+      if (title && title.length > 5 && title.length < 120) {
+        products.push({ title, url: match[1], site: 'The Mana Shop', price: '' });
       }
+    }
+  }
+  return [...new Map(products.map(p => [p.title, p])).values()].slice(0, 15);
+}
+
+async function scrapeTwoMoons() {
+  const r = await fetch('https://www.twomoons.ch/en/magic-the-gathering/', { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  const html = await r.text();
+  const products = [];
+  const regex = /<a[^>]*href="(https:\/\/www\.twomoons\.ch\/en\/[^"]+)"[^>]*>([^<]{5,80})<\/a>/gi;
+  let match;
+  while ((match = regex.exec(html)) !== null) {
+    const title = match[2].trim();
+    const url = match[1];
+    if (title.length > 5 && !url.includes('account') && !url.includes('cart') && !url.includes('login')) {
+      products.push({ title, url, site: 'TwoMoons', price: '' });
     }
   }
   return [...new Map(products.map(p => [p.title, p])).values()].slice(0, 15);
@@ -57,14 +68,46 @@ export default async () => {
 
   const store = getStore('sl-monitor');
   let knownKeys = [];
-  try { const s = await store.get('known-keys'); if (s) knownKeys = JSON.parse(s); } catch(e) {}
+  try {
+    const s = await store.get('known-keys');
+    if (s) knownKeys = JSON.parse(s);
+  } catch(e) {}
 
   const now = new Date();
   const isRiepilogo = now.getUTCHours() === 7;
 
   let allProducts = [];
-
   try { allProducts = [...allProducts, ...await scrapeManaTrust()]; } catch(err) {}
   try { allProducts = [...allProducts, ...await scrapeManaShop()]; } catch(err) {}
+  try { allProducts = [...allProducts, ...await scrapeTwoMoons()]; } catch(err) {}
 
-  const newProducts = allProducts.filter(p => !knownKeys.includes(`
+  const newProducts = allProducts.filter(p => !knownKeys.includes(p.site + ':' + p.title));
+
+  for (const p of newProducts) {
+    await sendTelegram('<b>NUOVO MTG su ' + p.site + '!</b>\n\n' + p.title + '\n' + p.url);
+    await new Promise(r => setTimeout(r, 1000));
+  }
+
+  if (isRiepilogo && allProducts.length > 0) {
+    const bySite = {};
+    for (const p of allProducts) {
+      if (!bySite[p.site]) bySite[p.site] = [];
+      bySite[p.site].push(p);
+    }
+    let msg = '<b>Buongiorno! Riepilogo MTG del ' + now.toLocaleDateString('it-IT') + '</b>\n\n';
+    for (const site of Object.keys(bySite)) {
+      msg += '<b>' + site + '</b>\n';
+      for (const p of bySite[site].slice(0, 5)) {
+        msg += '- ' + p.title + '\n' + p.url + '\n';
+      }
+      msg += '\n';
+    }
+    await sendTelegram(msg);
+  }
+
+  const allKeys = [...new Set([...knownKeys, ...allProducts.map(p => p.site + ':' + p.title)])];
+  await store.set('known-keys', JSON.stringify(allKeys));
+};
+
+export const config = { schedule: "*/30 * * * *" };
+
