@@ -60,6 +60,7 @@ export default async () => {
 
   let allProducts = [], newProducts = [];
   for (const site of sites) {
+    await new Promise(r => setTimeout(r, 10000));
     try {
       const products = await searchSite(site.name, site.url);
       allProducts = [...allProducts, ...products];
